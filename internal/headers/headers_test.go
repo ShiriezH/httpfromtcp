@@ -44,13 +44,21 @@ func TestHeadersParse(t *testing.T) {
 	assert.False(t, done)
 
 	// Valid done
+		// Valid duplicate header
 	headers = NewHeaders()
+	headers["set-person"] = "lane-loves-go"
 
-	n, done, err = headers.Parse([]byte("\r\n"))
+	n, done, err = headers.Parse(
+		[]byte("Set-Person: prime-loves-zig\r\n\r\n"),
+	)
 
 	require.NoError(t, err)
-	assert.Equal(t, 2, n)
-	assert.True(t, done)
+	assert.Equal(
+		t,
+		"lane-loves-go, prime-loves-zig",
+		headers["set-person"],
+	)
+	assert.False(t, done)
 
 	// Invalid spacing header
 	headers = NewHeaders()

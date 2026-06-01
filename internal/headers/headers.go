@@ -47,7 +47,13 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	value := strings.TrimSpace(line[colonIndex+1:])
 
 	// header names are case-insensitive
-	h[strings.ToLower(key)] = value
+	key = strings.ToLower(key)
+
+if existingValue, exists := h[key]; exists {
+	h[key] = existingValue + ", " + value
+} else {
+	h[key] = value
+}
 
 	return crlfIndex + 2, false, nil
 }
