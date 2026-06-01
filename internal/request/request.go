@@ -5,17 +5,21 @@ import (
 	"io"
 	"regexp"
 	"strings"
+
+	"httpfromtcp/internal/headers"
 )
 
 const bufferSize = 8
 
 const (
 	stateInitialized = iota
+	stateParsingHeaders
 	stateDone
 )
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     headers.Headers
 	state       int
 }
 
@@ -30,7 +34,8 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	readToIndex := 0
 
 	r := &Request{
-		state: stateInitialized,
+		state:   stateInitialized,
+		Headers: headers.NewHeaders(),
 	}
 
 	for r.state != stateDone {
@@ -63,15 +68,31 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		}
 	}
 
-	if r.RequestLine.Method == "" {
-		return nil, errors.New("failed to parse request line")
-	}
-
 	return r, nil
 }
 
 func (r *Request) parse(data []byte) (int, error) {
+	totalBytesParsed := 0
+
+	for r.state != stateDone {
+		n, err := r.parseSingle(data[totalBytesParsed:])
+		if err != nil {
+			return 0, err
+		}
+
+		if n == 0 {
+			break
+		}
+
+		totalBytesParsed += n
+	}
+
+	return totalBytesParsed, nil
+}
+
+func (r *Request) parseSingle(data []byte) (int, error) {
 	switch r.state {
+
 	case stateInitialized:
 		requestLine, consumed, err := parseRequestLine(data)
 		if err != nil {
@@ -83,9 +104,21 @@ func (r *Request) parse(data []byte) (int, error) {
 		}
 
 		r.RequestLine = requestLine
-		r.state = stateDone
+		r.state = stateParsingHeaders
 
 		return consumed, nil
+
+	case stateParsingHeaders:
+		n, done, err := r.Headers.Parse(data)
+		if err != nil {
+			return 0, err
+		}
+
+		if done {
+			r.state = stateDone
+		}
+
+		return n, nil
 
 	case stateDone:
 		return 0, errors.New("trying to parse in done state")
