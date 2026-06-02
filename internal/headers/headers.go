@@ -12,6 +12,10 @@ func NewHeaders() Headers {
 	return make(Headers)
 }
 
+func (h Headers) Get(key string) string {
+	return h[strings.ToLower(key)]
+}
+
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	str := string(data)
 
@@ -20,7 +24,6 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 		return 0, false, nil
 	}
 
-	// blank line => end of headers
 	if crlfIndex == 0 {
 		return 2, true, nil
 	}
@@ -34,7 +37,6 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 
 	key := line[:colonIndex]
 
-	// spaces before the colon are invalid
 	if strings.TrimSpace(key) != key {
 		return 0, false, errors.New("invalid header spacing")
 	}
@@ -46,14 +48,13 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 
 	value := strings.TrimSpace(line[colonIndex+1:])
 
-	// header names are case-insensitive
 	key = strings.ToLower(key)
 
-if existingValue, exists := h[key]; exists {
-	h[key] = existingValue + ", " + value
-} else {
-	h[key] = value
-}
+	if existingValue, exists := h[key]; exists {
+		h[key] = existingValue + ", " + value
+	} else {
+		h[key] = value
+	}
 
 	return crlfIndex + 2, false, nil
 }
