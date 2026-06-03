@@ -16,7 +16,17 @@ const (
 	StatusInternalServerError StatusCode = 500
 )
 
-func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
+type Writer struct {
+	writer io.Writer
+}
+
+func NewWriter(w io.Writer) *Writer {
+	return &Writer{
+		writer: w,
+	}
+}
+
+func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 	reasonPhrase := ""
 
 	switch statusCode {
@@ -29,7 +39,7 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 	}
 
 	_, err := fmt.Fprintf(
-		w,
+		w.writer,
 		"HTTP/1.1 %d %s\r\n",
 		statusCode,
 		reasonPhrase,
@@ -38,24 +48,33 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 	return err
 }
 
-func GetDefaultHeaders(contentLen int) headers.Headers {
-	h := headers.NewHeaders()
-
-	h["content-length"] = strconv.Itoa(contentLen)
-	h["connection"] = "close"
-	h["content-type"] = "text/plain"
-
-	return h
-}
-
-func WriteHeaders(w io.Writer, headers headers.Headers) error {
+func (w *Writer) WriteHeaders(headers headers.Headers) error {
 	for key, value := range headers {
-		_, err := fmt.Fprintf(w, "%s: %s\r\n", key, value)
+		_, err := fmt.Fprintf(
+			w.writer,
+			"%s: %s\r\n",
+			key,
+			value,
+		)
 		if err != nil {
 			return err
 		}
 	}
 
-	_, err := fmt.Fprint(w, "\r\n")
+	_, err := fmt.Fprint(w.writer, "\r\n")
 	return err
+}
+
+func (w *Writer) WriteBody(p []byte) (int, error) {
+	return w.writer.Write(p)
+}
+
+func GetDefaultHeaders(contentLen int) headers.Headers {
+	h := headers.NewHeaders()
+
+	h.Set("Content-Length", strconv.Itoa(contentLen))
+	h.Set("Connection", "close")
+	h.Set("Content-Type", "text/plain")
+
+	return h
 }

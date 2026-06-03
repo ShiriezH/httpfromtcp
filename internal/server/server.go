@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"net"
 	"sync/atomic"
 
@@ -11,31 +9,7 @@ import (
 	"httpfromtcp/internal/response"
 )
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
-
-type HandlerError struct {
-	StatusCode response.StatusCode
-	Message    string
-}
-
-func (h *HandlerError) Write(w io.Writer) error {
-	err := response.WriteStatusLine(w, h.StatusCode)
-	if err != nil {
-		return err
-	}
-
-	body := []byte(h.Message)
-
-	headers := response.GetDefaultHeaders(len(body))
-
-	err = response.WriteHeaders(w, headers)
-	if err != nil {
-		return err
-	}
-
-	_, err = w.Write(body)
-	return err
-}
+type Handler func(w *response.Writer, req *request.Request)
 
 type Server struct {
 	listener net.Listener
@@ -49,14 +23,14 @@ func Serve(port int, handler Handler) (*Server, error) {
 		return nil, err
 	}
 
-	server := &Server{
+	s := &Server{
 		listener: listener,
 		handler:  handler,
 	}
 
-	go server.listen()
+	go s.listen()
 
-	return server, nil
+	return s, nil
 }
 
 func (s *Server) Close() error {
@@ -83,37 +57,18 @@ func (s *Server) handle(conn net.Conn) {
 
 	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		handlerErr := &HandlerError{
-			StatusCode: response.StatusBadRequest,
-			Message:    "Bad Request\n",
-		}
-		_ = handlerErr.Write(conn)
+		writer := response.NewWriter(conn)
+
+		headers := response.GetDefaultHeaders(0)
+		headers.Set("Content-Type", "text/html")
+
+		_ = writer.WriteStatusLine(response.StatusBadRequest)
+		_ = writer.WriteHeaders(headers)
+
 		return
 	}
 
-	var body bytes.Buffer
+	writer := response.NewWriter(conn)
 
-	handlerErr := s.handler(&body, req)
-
-	if handlerErr != nil {
-		_ = handlerErr.Write(conn)
-		return
-	}
-
-	bodyBytes := body.Bytes()
-
-	err = response.WriteStatusLine(conn, response.StatusOK)
-	if err != nil {
-		return
-	}
-
-	err = response.WriteHeaders(
-		conn,
-		response.GetDefaultHeaders(len(bodyBytes)),
-	)
-	if err != nil {
-		return
-	}
-
-	_, _ = conn.Write(bodyBytes)
+	s.handler(writer, req)
 }
