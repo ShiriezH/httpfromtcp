@@ -20,6 +20,10 @@ func (h Headers) Set(key, value string) {
 	h[strings.ToLower(key)] = value
 }
 
+func (h Headers) Delete(key string) {
+	delete(h, strings.ToLower(key))
+}
+
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	str := string(data)
 

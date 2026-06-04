@@ -1,11 +1,18 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
+	"httpfromtcp/internal/headers"
 	"httpfromtcp/internal/request"
 	"httpfromtcp/internal/response"
 	"httpfromtcp/internal/server"
@@ -48,6 +55,102 @@ func main() {
 		w *response.Writer,
 		req *request.Request,
 	) {
+
+		// NEW: video endpoint
+		if req.RequestLine.RequestTarget == "/video" {
+			videoData, err := os.ReadFile("assets/vim.mp4")
+			if err != nil {
+				return
+			}
+
+			respHeaders := response.GetDefaultHeaders(len(videoData))
+			respHeaders.Set("Content-Type", "video/mp4")
+
+			_ = w.WriteStatusLine(response.StatusOK)
+			_ = w.WriteHeaders(respHeaders)
+			_, _ = w.WriteBody(videoData)
+
+			return
+		}
+
+		// httpbin proxy
+		if strings.HasPrefix(
+			req.RequestLine.RequestTarget,
+			"/httpbin/",
+		) {
+
+			path := strings.TrimPrefix(
+				req.RequestLine.RequestTarget,
+				"/httpbin",
+			)
+
+			resp, err := http.Get(
+				"https://httpbin.org" + path,
+			)
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+
+			respHeaders := response.GetDefaultHeaders(0)
+
+			respHeaders.Delete("Content-Length")
+			respHeaders.Set("Transfer-Encoding", "chunked")
+			respHeaders.Set(
+				"Trailer",
+				"X-Content-SHA256, X-Content-Length",
+			)
+
+			contentType := resp.Header.Get("Content-Type")
+			if contentType == "" {
+				contentType = "text/html"
+			}
+
+			respHeaders.Set("Content-Type", contentType)
+
+			_ = w.WriteStatusLine(response.StatusOK)
+			_ = w.WriteHeaders(respHeaders)
+
+			buf := make([]byte, 1024)
+			var fullBody []byte
+
+			for {
+				n, err := resp.Body.Read(buf)
+
+				if n > 0 {
+					chunk := buf[:n]
+					fullBody = append(fullBody, chunk...)
+					_, _ = w.WriteChunkedBody(chunk)
+				}
+
+				if err == io.EOF {
+					break
+				}
+
+				if err != nil {
+					return
+				}
+			}
+
+			_, _ = w.WriteChunkedBodyDone()
+
+			hash := sha256.Sum256(fullBody)
+
+			trailers := headers.NewHeaders()
+			trailers.Set(
+				"X-Content-SHA256",
+				hex.EncodeToString(hash[:]),
+			)
+			trailers.Set(
+				"X-Content-Length",
+				strconv.Itoa(len(fullBody)),
+			)
+
+			_ = w.WriteTrailers(trailers)
+
+			return
+		}
+
 		var (
 			status response.StatusCode
 			body   string
@@ -68,11 +171,11 @@ func main() {
 			body = successHTML
 		}
 
-		headers := response.GetDefaultHeaders(len(body))
-		headers.Set("Content-Type", "text/html")
+		respHeaders := response.GetDefaultHeaders(len(body))
+		respHeaders.Set("Content-Type", "text/html")
 
 		_ = w.WriteStatusLine(status)
-		_ = w.WriteHeaders(headers)
+		_ = w.WriteHeaders(respHeaders)
 		_, _ = w.WriteBody([]byte(body))
 	}
 
